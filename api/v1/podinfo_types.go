@@ -59,6 +59,11 @@ type PodInfoSpec struct {
 type PodInfoStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	ReplicaCount int32     `json:"replicaCount"`
+	ResourceInfo Resources `json:"resources"`
+	ImageInfo    Image     `json:"image"`
+	UiInfo       Ui        `json:"ui"`
+	RedisInfo    Redis     `json:"redis"`
 }
 
 //+kubebuilder:object:root=true

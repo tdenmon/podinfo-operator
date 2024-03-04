@@ -18,7 +18,10 @@ package controller
 
 import (
 	"context"
+	"reflect"
+	"time"
 
+	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,6 +56,8 @@ type PodInfoReconciler struct {
 func (r *PodInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
+	log.Info("Entering reconcile")
+
 	var podinfo appv1.PodInfo
 	errGet := r.Get(ctx, req.NamespacedName, &podinfo)
 	if errGet != nil {
@@ -82,31 +87,136 @@ func (r *PodInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 
-	err := r.Status().Update(ctx, &podinfo)
+	podInfoDeploy := NewPodInfoDeploy(&podinfo)
+	_, errCreate := ctrl.CreateOrUpdate(ctx, r.Client, podInfoDeploy, func() error {
+		return ctrl.SetControllerReference(&podinfo, podInfoDeploy, r.Scheme)
+	})
+	if errCreate != nil {
+		log.Error(errCreate, "Error creating podinfo deployment")
+		return ctrl.Result{}, nil
+	}
+
+	result, err := UpdateReplicaCount(&podinfo, r, podInfoDeploy, ctx, log)
+	if (result != ctrl.Result{}) && (err != nil) {
+		return result, err
+	}
+
+	result, err = UpdateMemLimit(&podinfo, r, podInfoDeploy, ctx, log)
+	if (result != ctrl.Result{}) && (err != nil) {
+		return result, err
+	}
+
+	result, err = UpdateCpuRequest(&podinfo, r, podInfoDeploy, ctx, log)
+	if (result != ctrl.Result{}) && (err != nil) {
+		return result, err
+	}
+
+	result, err = UpdateEnv(&podinfo, r, podInfoDeploy, ctx, log)
+	if (result != ctrl.Result{}) && (err != nil) {
+		return result, err
+	}
+
+	err = r.Status().Update(ctx, &podinfo)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	// Make Deployment(?) for Redis if enabled
-	// Make Service for Redis, if enabled
-	// Make Deployment with PodInfo pods, pointed at Redis service via env var
+
 	// Make Service for PodInfo Deployment
-	// CreateOrUpdate all of the above
-	// Check for errors
-	// Update podinfo object
-	// ???
-	// Profit!
+
+	return ctrl.Result{}, nil
+}
+
+func UpdateReplicaCount(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeploy *appsv1.Deployment, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
+	if *podInfoDeploy.Spec.Replicas != podinfo.Spec.ReplicaCount {
+		*podInfoDeploy.Spec.Replicas = podinfo.Spec.ReplicaCount
+		err := r.Update(ctx, podInfoDeploy)
+		if err != nil {
+			log.Error(err, "Failed to update podinfo deployment replica count")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func UpdateMemLimit(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeploy *appsv1.Deployment, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
+	memLimit := corev1.ResourceList{
+		"memory": podinfo.Spec.ResourceInfo.MemoryLimit,
+	}
+	if !reflect.DeepEqual(podInfoDeploy.Spec.Template.Spec.Containers[0].Resources.Limits, memLimit) {
+		podInfoDeploy.Spec.Template.Spec.Containers[0].Resources.Limits = memLimit
+		err := r.Update(ctx, podInfoDeploy)
+		if err != nil {
+			log.Error(err, "Failed to update podinfo deployment mem limit")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func UpdateCpuRequest(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeploy *appsv1.Deployment, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
+	cpuRequest := corev1.ResourceList{
+		"cpu": podinfo.Spec.ResourceInfo.CpuRequest,
+	}
+	if !reflect.DeepEqual(podInfoDeploy.Spec.Template.Spec.Containers[0].Resources.Requests, cpuRequest) {
+		podInfoDeploy.Spec.Template.Spec.Containers[0].Resources.Requests = cpuRequest
+		err := r.Update(ctx, podInfoDeploy)
+		if err != nil {
+			log.Error(err, "Failed to update podinfo deployment cpu request")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func UpdateEnv(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeploy *appsv1.Deployment, ctx context.Context, log logr.Logger) (ctrl.Result, error) {
+	env := []corev1.EnvVar{
+		{
+			Name:  "PODINFO_UI_COLOR",
+			Value: podinfo.Spec.UiInfo.UiColor,
+		},
+		{
+			Name:  "PODINFO_UI_MESSAGE",
+			Value: podinfo.Spec.UiInfo.UiMessage,
+		},
+	}
+	if podinfo.Spec.RedisInfo.RedisEnabled {
+		env = append(env, corev1.EnvVar{
+			Name:  "PODINFO_CACHE_SERVER",
+			Value: "tcp://" + podinfo.Name + "-redis:6379",
+		})
+	}
+	if !reflect.DeepEqual(podInfoDeploy.Spec.Template.Spec.Containers[0].Env, env) {
+		podInfoDeploy.Spec.Template.Spec.Containers[0].Env = env
+		err := r.Update(ctx, podInfoDeploy)
+		if err != nil {
+			log.Error(err, "Failed to update podinfo deployment env vars")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
+	}
 
 	return ctrl.Result{}, nil
 }
 
 func NewRedisDeploy(podinfo *appv1.PodInfo) *appsv1.Deployment {
+	name := podinfo.Name + "-redis"
 	labels := map[string]string{
-		"app": podinfo.Name,
+		"app": name,
 	}
 
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podinfo.Name,
+			Name:      name,
 			Namespace: "default",
 		},
 		Spec: appsv1.DeploymentSpec{
@@ -138,13 +248,14 @@ func NewRedisDeploy(podinfo *appv1.PodInfo) *appsv1.Deployment {
 }
 
 func NewRedisService(podinfo *appv1.PodInfo) *corev1.Service {
+	name := podinfo.Name + "-redis"
 	labels := map[string]string{
-		"app": podinfo.Name,
+		"app": name,
 	}
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      podinfo.Name,
+			Name:      name,
 			Labels:    labels,
 			Namespace: "default",
 		},
@@ -159,6 +270,71 @@ func NewRedisService(podinfo *appv1.PodInfo) *corev1.Service {
 			},
 			Selector:  labels,
 			ClusterIP: "",
+		},
+	}
+}
+
+func NewPodInfoDeploy(podinfo *appv1.PodInfo) *appsv1.Deployment {
+	labels := map[string]string{
+		"app": podinfo.Name,
+	}
+	env := []corev1.EnvVar{
+		{
+			Name:  "PODINFO_UI_COLOR",
+			Value: podinfo.Spec.UiInfo.UiColor,
+		},
+		{
+			Name:  "PODINFO_UI_MESSAGE",
+			Value: podinfo.Spec.UiInfo.UiMessage,
+		},
+	}
+
+	if podinfo.Spec.RedisInfo.RedisEnabled {
+		env = append(env, corev1.EnvVar{
+			Name:  "PODINFO_CACHE_SERVER",
+			Value: "tcp://" + podinfo.Name + "-redis:6379",
+		})
+	}
+
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podinfo.Name,
+			Namespace: "default",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Replicas: &podinfo.Spec.ReplicaCount,
+			Selector: &metav1.LabelSelector{
+				MatchLabels: labels,
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: labels,
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "podinfo",
+							Image: "stefanprodan/podinfo:latest",
+							Ports: []corev1.ContainerPort{
+								{
+									Name:          "webapp",
+									Protocol:      corev1.ProtocolTCP,
+									ContainerPort: 80,
+								},
+							},
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									"memory": podinfo.Spec.ResourceInfo.MemoryLimit,
+								},
+								Requests: corev1.ResourceList{
+									"cpu": podinfo.Spec.ResourceInfo.CpuRequest,
+								},
+							},
+							Env: env,
+						},
+					},
+				},
+			},
 		},
 	}
 }
