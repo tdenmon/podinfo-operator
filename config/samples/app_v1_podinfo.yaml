@@ -17,8 +17,8 @@ spec:
     repository: ghcr.io/stefanprodan/podinfo
     tag: latest
   ui:
-    color: "#34577c"
-    message: "a string"
+    color: "#336699"
+    message: "This string"
   redis:
     enabled: true
 

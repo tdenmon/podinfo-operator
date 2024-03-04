@@ -96,6 +96,15 @@ func (r *PodInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	podInfoService := NewPodInfoService(&podinfo)
+	_, errCreate = ctrl.CreateOrUpdate(ctx, r.Client, podInfoService, func() error {
+		return ctrl.SetControllerReference(&podinfo, podInfoService, r.Scheme)
+	})
+	if errCreate != nil {
+		log.Error(errCreate, "Error creating podinfo service")
+		return ctrl.Result{}, nil
+	}
+
 	result, err := UpdateReplicaCount(&podinfo, r, podInfoDeploy, ctx, log)
 	if (result != ctrl.Result{}) && (err != nil) {
 		return result, err
@@ -274,6 +283,32 @@ func NewRedisService(podinfo *appv1.PodInfo) *corev1.Service {
 	}
 }
 
+func NewPodInfoService(podinfo *appv1.PodInfo) *corev1.Service {
+	labels := map[string]string{
+		"app": podinfo.Name,
+	}
+
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podinfo.Name,
+			Labels:    labels,
+			Namespace: "default",
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "podinfo",
+					Protocol:   corev1.ProtocolTCP,
+					Port:       9898,
+					TargetPort: intstr.FromInt(9898),
+				},
+			},
+			Selector: labels,
+			Type:     "NodePort",
+		},
+	}
+}
+
 func NewPodInfoDeploy(podinfo *appv1.PodInfo) *appsv1.Deployment {
 	labels := map[string]string{
 		"app": podinfo.Name,
@@ -319,7 +354,7 @@ func NewPodInfoDeploy(podinfo *appv1.PodInfo) *appsv1.Deployment {
 								{
 									Name:          "webapp",
 									Protocol:      corev1.ProtocolTCP,
-									ContainerPort: 80,
+									ContainerPort: 9898,
 								},
 							},
 							Resources: corev1.ResourceRequirements{
