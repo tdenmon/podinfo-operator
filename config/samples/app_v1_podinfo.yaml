@@ -18,7 +18,7 @@ spec:
     tag: latest
   ui:
     color: "#336699"
-    message: "This string"
+    message: "A string"
   redis:
     enabled: true
 

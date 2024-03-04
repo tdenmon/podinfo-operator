@@ -56,8 +56,6 @@ type PodInfoReconciler struct {
 func (r *PodInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	log.Info("Entering reconcile")
-
 	var podinfo appv1.PodInfo
 	errGet := r.Get(ctx, req.NamespacedName, &podinfo)
 	if errGet != nil {
@@ -130,8 +128,6 @@ func (r *PodInfoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	// Make Service for PodInfo Deployment
-
 	return ctrl.Result{}, nil
 }
 
@@ -143,6 +139,7 @@ func UpdateReplicaCount(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDep
 			log.Error(err, "Failed to update podinfo deployment replica count")
 			return ctrl.Result{}, err
 		}
+		podinfo.Status.ReplicaCount = podinfo.Spec.ReplicaCount
 
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
@@ -161,6 +158,7 @@ func UpdateMemLimit(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeploy 
 			log.Error(err, "Failed to update podinfo deployment mem limit")
 			return ctrl.Result{}, err
 		}
+		podinfo.Status.ResourceInfo.MemoryLimit = podinfo.Spec.ResourceInfo.MemoryLimit
 
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
@@ -179,6 +177,7 @@ func UpdateCpuRequest(podinfo *appv1.PodInfo, r *PodInfoReconciler, podInfoDeplo
 			log.Error(err, "Failed to update podinfo deployment cpu request")
 			return ctrl.Result{}, err
 		}
+		podinfo.Status.ResourceInfo.CpuRequest = podinfo.Spec.ResourceInfo.CpuRequest
 
 		return ctrl.Result{RequeueAfter: time.Second * 3}, nil
 	}
