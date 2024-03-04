@@ -1,8 +1,8 @@
 # angi-takehome
-// TODO(user): Add simple overview of use/purpose
+A simple example of a Kubernetes Operator managing resources via Kubebuilder.
 
 ## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+This operator leverages [the PodInfo app](https://github.com/stefanprodan/podinfo) along with a Redis backend to show an operator managing a variety of resources within a k8s cluster.
 
 ## Getting Started
 
@@ -11,6 +11,28 @@
 - docker version 17.03+.
 - kubectl version v1.11.3+.
 - Access to a Kubernetes v1.11.3+ cluster.
+
+### Use for Take Home Review
+**Use the following commands to get a running operator on your local Kind/Minikube cluster:**
+
+```sh
+make
+make manifests
+make install
+make run
+```
+
+**Then apply the example manifest for the CRD to your cluster:**
+
+```sh
+kubectl apply -f config/samples/app_v1_podinfo.yaml
+```
+
+**You can then change individual parameters within that sample file and reapply with the same command to observe the changes to the existing resource. Access the PodInfo UI using the Service endpoint for the podinfo-sample Service.**
+
+**You can run the Ginkgo integration tests with `make test`**
+
+The generic pregenerated Kubebuilder README installation steps follow below.
 
 ### To Deploy on the cluster
 **Build and push your image to the location specified by `IMG`:**
