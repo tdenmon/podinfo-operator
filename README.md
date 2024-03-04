@@ -28,7 +28,7 @@ make run
 kubectl apply -f config/samples/app_v1_podinfo.yaml
 ```
 
-**You can then change individual parameters within that sample file and reapply with the same command to observe the changes to the existing resource. Access the PodInfo UI using the Service endpoint for the podinfo-sample Service.**
+**You can then change individual parameters within that sample file and reapply with the same command to observe the changes to the existing resource. Access the PodInfo UI and/or Redis Cache using the Service endpoint for the podinfo-sample Service.**
 
 **You can run the Ginkgo integration tests with `make test`**
 
